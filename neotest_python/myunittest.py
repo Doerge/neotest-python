@@ -5,30 +5,30 @@ import traceback
 import unittest
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Dict, List, Tuple
-from unittest import TestCase, TestResult, TestSuite
-from unittest.runner import TextTestResult, TextTestRunner
 
 from .base import NeotestAdapter, NeotestResultStatus
 
 
 class UnittestNeotestAdapter(NeotestAdapter):
-    def case_file(self, case) -> str:
+    def case_file(self, case):
         return str(Path(inspect.getmodule(case).__file__).absolute())  # type: ignore
 
-    def case_id_elems(self, case) -> List[str]:
+    def case_id_elems(self, case):
         file = self.case_file(case)
         elems = [file, case.__class__.__name__]
-        if isinstance(case, TestCase):
+        if isinstance(case, unittest.TestCase):
             elems.append(case._testMethodName)
         return elems
 
-    def case_id(self, case: "TestCase | TestSuite") -> str:
+    def case_id(self, case):
         return "::".join(self.case_id_elems(case))
 
-    def id_to_unittest_args(self, case_id: str) -> List[str]:
+    def id_to_unittest_args(self, case_id):
         """Converts a neotest ID into test specifier for unittest"""
-        path, *child_ids = case_id.split("::")
+        #path, *child_ids = case_id.split("::")
+        tmp = case_id.split("::")
+        path = tmp[0]
+        child_ids = tmp[1:]
         if not child_ids:
             if os.path.isfile(path):
                 # Test files can be passed directly to unittest
@@ -40,31 +40,33 @@ class UnittestNeotestAdapter(NeotestAdapter):
         relative_file = os.path.relpath(path, os.getcwd())
         relative_stem = os.path.splitext(relative_file)[0]
         relative_dotted = relative_stem.replace(os.sep, ".")
-        return [".".join([relative_dotted, *child_ids])]
+        #return [".".join([relative_dotted, *child_ids])]
+        child_ids.insert(0, relative_dotted)
+        return [".".join(child_ids)]
 
     # TODO: Stream results
-    def run(self, args: List[str], _) -> Dict:
+    def run(self, args, _):
         results = {}
 
-        errs: Dict[str, Tuple[Exception, Any, TracebackType]] = {}
+        errs = {}
 
-        class NeotestTextTestResult(TextTestResult):
-            def addFailure(_, test: TestCase, err) -> None:
+        class NeotestTextTestResult(unittest.TextTestResult):
+            def addFailure(_, test, err):
                 errs[self.case_id(test)] = err
                 return super().addFailure(test, err)
 
-            def addError(_, test: TestCase, err) -> None:
+            def addError(_, test, err):
                 errs[self.case_id(test)] = err
                 return super().addError(test, err)
 
-            def addSuccess(_, test: TestCase) -> None:
+            def addSuccess(_, test):
                 results[self.case_id(test)] = {
                     "status": NeotestResultStatus.PASSED,
                 }
 
-        class NeotestUnittestRunner(TextTestRunner):
-            def run(_, test: "TestSuite | TestCase") -> "TestResult":  # type: ignore
-                result = super().run(test)
+        class NeotestUnittestRunner(unittest.TextTestRunner):
+            def run(self, test):
+                result = unittest.TextTestRunner(resultclass=NeotestTextTestResult).run(test)
                 for case, message in result.failures + result.errors:
                     case_id = self.case_id(case)
                     error_line = None
@@ -92,6 +94,7 @@ class UnittestNeotestAdapter(NeotestAdapter):
 
         # Make sure we can import relative to current path
         sys.path.insert(0, os.getcwd())
+
         # We only get a single case ID as the argument
         argv = sys.argv[0:1] + self.id_to_unittest_args(args[-1])
         unittest.main(

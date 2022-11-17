@@ -1,23 +1,27 @@
 import argparse
 import json
-from enum import Enum
-from typing import List
 
 from neotest_python.base import NeotestAdapter, NeotestResult
 
 
-class TestRunner(str, Enum):
+class TestRunner(object):
     PYTEST = "pytest"
     UNITTEST = "unittest"
 
+    def __init__(self, runner):
+        self.runner = runner
 
-def get_adapter(runner: TestRunner) -> NeotestAdapter:
+    def __eq__(self, compare):
+        return self.runner == compare
+
+
+def get_adapter(runner):
     if runner == TestRunner.PYTEST:
         from .pytest import PytestNeotestAdapter
 
         return PytestNeotestAdapter()
     elif runner == TestRunner.UNITTEST:
-        from .unittest import UnittestNeotestAdapter
+        from .myunittest import UnittestNeotestAdapter
 
         return UnittestNeotestAdapter()
     raise NotImplementedError(runner)
@@ -40,13 +44,13 @@ parser.add_argument(
 parser.add_argument("args", nargs="*")
 
 
-def main(argv: List[str]):
+def main(argv):
     args = parser.parse_args(argv)
     adapter = get_adapter(TestRunner(args.runner))
 
     with open(args.stream_file, "w") as stream_file:
 
-        def stream(pos_id: str, result: NeotestResult):
+        def stream(pos_id, result):
             stream_file.write(json.dumps({"id": pos_id, "result": result}) + "\n")
             stream_file.flush()
 
