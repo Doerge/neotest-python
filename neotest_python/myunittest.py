@@ -31,9 +31,11 @@ class UnittestNeotestAdapter(NeotestAdapter):
         child_ids = tmp[1:]
         if not child_ids:
             if os.path.isfile(path):
-                # Test files can be passed directly to unittest
-                return [path]
+                # Test files must be passed as module to unittest
+                module_name = os.path.basename(path).split(".")[0]
+                return [module_name]
             # Directories need to be run via the 'discover' argument
+            # TODO: Check if this is correct for py2
             return ["discover", "-s", path]
 
         # Otherwise, convert the ID into a dotted path, relative to current dir
@@ -51,21 +53,24 @@ class UnittestNeotestAdapter(NeotestAdapter):
         errs = {}
 
         class NeotestTextTestResult(unittest.TextTestResult):
-            def addFailure(_, test, err):
-                errs[self.case_id(test)] = err
-                return super().addFailure(test, err)
+            def __init__(self_result, stream, desc, verbosity):
+                super(NeotestTextTestResult, self_result).__init__(stream, desc, verbosity)
 
-            def addError(_, test, err):
+            def addFailure(self_result, test, err):
                 errs[self.case_id(test)] = err
-                return super().addError(test, err)
+                return super(NeotestTextTestResult, self_result).addFailure(test, err)
 
-            def addSuccess(_, test):
+            def addError(self_result, test, err):
+                errs[self.case_id(test)] = err
+                return super(NeotestTextTestResult, self_result).addError(test, err)
+
+            def addSuccess(self_result, test):
                 results[self.case_id(test)] = {
                     "status": NeotestResultStatus.PASSED,
                 }
 
         class NeotestUnittestRunner(unittest.TextTestRunner):
-            def run(self, test):
+            def run(self_result, test):
                 result = unittest.TextTestRunner(resultclass=NeotestTextTestResult).run(test)
                 for case, message in result.failures + result.errors:
                     case_id = self.case_id(case)
@@ -74,10 +79,12 @@ class UnittestNeotestAdapter(NeotestAdapter):
                     if case_id in errs:
                         trace = errs[case_id][2]
                         summary = traceback.extract_tb(trace)
+                        # Python2: case_file is .pyc, but frames are .py. Drop the c from .pyc
+                        case_file_py = case_file[:-1]
                         error_line = next(
-                            frame.lineno - 1
+                            frame[1] - 1
                             for frame in reversed(summary)
-                            if frame.filename == case_file
+                            if frame[0] == case_file_py
                         )
                     results[case_id] = {
                         "status": NeotestResultStatus.FAILED,
